@@ -15,30 +15,31 @@ dotenv.config();
 const app = express();
 app.use(express.json()); // Middleware to parse JSON request bodies
 
-// Connect to MongoDB before starting the server
-connectDB()
-  .then(() => {
-    const port = process.env.PORT || 3000;
-    app.listen(port, () => {
-      console.log(`Server running on port ${port}`);
-    });
-  })
-  .catch(err => {
-    console.error("MongoDB connection failed:", err);
-    // Add explicit error response
-    app.get("*", (req, res) => {
-      res.status(500).json({
-        error: "Database connection failed",
-        details: err.message
-      });
-    });
-  });
-
+    
 app.use(cors({
   origin: ['https://your-frontend-app.vercel.app', 'http://localhost:3000'],
   methods: ['GET', 'POST', 'PUT'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
+
+
+
+// Connect to MongoDB before starting the server
+const startServer = async () => {
+  try {
+    await connectDB();
+    const port = process.env.PORT || 3000;
+    
+    // Define all routes AFTER database connection
+    app.get("/", (req, res) => {
+      res.status(200).json({ 
+        status: "active",
+        message: "Servibid Backend Running",
+        timestamp: new Date().toISOString()
+      });
+    });
+
+
 
   // Start server only after DB connection is successful
   const port = process.env.PORT || 3000;
@@ -561,10 +562,16 @@ app.get('/twilio-token', async (req, res) => {
 });
 
 
-app.get("/", (req, res) => {
-  res.status(200).json({ 
-    status: "active",
-    message: "Servibid Backend Running",
-    timestamp: new Date().toISOString()
-  });
-});
+// Start server
+    app.listen(port, () => {
+      console.log(`Server running on port ${port}`);
+    });
+
+  } catch (err) {
+    console.error("Failed to start server:", err);
+    process.exit(1);
+  }
+};
+
+// Start the application
+startServer();
