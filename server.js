@@ -9,6 +9,7 @@ import ServiceProvider from "./models/provider.model.js"; // Import the ServiceP
 import Review from './models/review.model.js'; //Import review  model
 import Chat from "./models/chat.model.js"; //import chat model
 import Message from "./models/message.model.js"; //import message model
+import cors from 'cors'; 
 
 dotenv.config();
 
