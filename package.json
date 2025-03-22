@@ -14,10 +14,14 @@
   "description": "",
   "dependencies": {
     "@aws-sdk/client-s3": "^3.741.0",
+    "@clerk/clerk-expo": "^2.9.2",
+    "@firebase/auth": "^1.9.1",
+    "@firebase/firestore": "^4.7.10",
     "aws-sdk": "^2.1692.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
+    "firebase": "^11.5.0",
     "mongodb": "^6.13.0",
     "mongoose": "^8.9.7",
     "npm-git-install": "^0.3.0"
