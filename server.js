@@ -13,44 +13,31 @@ import Message from "./models/message.model.js"; //import message model
 dotenv.config();
 
 const app = express();
-app.use(express.json()); // Middleware to parse JSON request bodies
 
-    
+// Middleware setup
 app.use(cors({
-  origin: ['https://your-frontend-app.vercel.app', 'http://localhost:3000'],
-  methods: ['GET', 'POST', 'PUT'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  origin: ['https://your-frontend-domain.vercel.app', 'http://localhost:3000'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  credentials: true
 }));
+app.use(express.json());
 
-
-
-// Connect to MongoDB before starting the server
+// Database connection and server startup
 const startServer = async () => {
   try {
+    // Connect to MongoDB
     await connectDB();
-    const port = process.env.PORT || 3000;
-    
-    // Define all routes AFTER database connection
-    app.get("/", (req, res) => {
-      res.status(200).json({ 
-        status: "active",
-        message: "Servibid Backend Running",
+    console.log('✅ MongoDB connected');
+
+    // Basic health check
+    app.get('/', (req, res) => {
+      res.status(200).json({
+        status: 'active',
+        message: 'Servibid Backend Running',
         timestamp: new Date().toISOString()
       });
     });
 
-
-
-  // Start server only after DB connection is successful
-  const port = process.env.PORT || 3000;
-  app.listen(port, () => {
-    console.log(`Server started on port ${port}`);
-});
-
-}).catch(err => {
-  console.error("Failed to connect to MongoDB:", err);
-  process.exit(1); // Exit the process if DB connection fails
-});
 
 // Fetch customer details by email
 app.get("/customer/:email", async (req, res) => {
@@ -560,15 +547,16 @@ app.get('/twilio-token', async (req, res) => {
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
-
+      
 
 // Start server
+    const port = process.env.PORT || 3000;
     app.listen(port, () => {
-      console.log(`Server running on port ${port}`);
+      console.log(`🚀 Server running on port ${port}`);
     });
 
-  } catch (err) {
-    console.error("Failed to start server:", err);
+  } catch (error) {
+    console.error('🔥 Critical startup failure:', error);
     process.exit(1);
   }
 };
