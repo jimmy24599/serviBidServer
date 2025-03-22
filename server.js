@@ -515,40 +515,6 @@ app.post('/reviews/existence', async (req, res) => {
 });
 
 
-// ADD THIS INSTEAD
-app.get('/twilio-token', async (req, res) => {
-  try {
-    const { userId } = req.query;
-    
-    if (!userId) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-
-    const accountSid = process.env.TWILIO_ACCOUNT_SID;
-    const apiKey = process.env.TWILIO_API_KEY_SID;
-    const apiSecret = process.env.TWILIO_API_KEY_SECRET;
-
-    const token = new Twilio.jwt.AccessToken(
-      accountSid,
-      apiKey,
-      apiSecret,
-      { identity: userId, ttl: 3600 }
-    );
-
-    const grant = new Twilio.jwt.AccessToken.ChatGrant({
-      serviceSid: process.env.TWILIO_CHAT_SERVICE_SID
-    });
-
-    token.addGrant(grant);
-    
-    res.json({ token: token.toJwt() });
-  } catch (error) {
-    console.error('Twilio error:', error);
-    res.status(500).json({ error: 'Internal Server Error' });
-  }
-});
-      
-
 // Start server
     const port = process.env.PORT || 3000;
     app.listen(port, () => {
