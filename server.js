@@ -16,8 +16,23 @@ const app = express();
 app.use(express.json()); // Middleware to parse JSON request bodies
 
 // Connect to MongoDB before starting the server
-connectDB().then(() => {
-  console.log("MongoDB Connected");
+connectDB()
+  .then(() => {
+    const port = process.env.PORT || 3000;
+    app.listen(port, () => {
+      console.log(`Server running on port ${port}`);
+    });
+  })
+  .catch(err => {
+    console.error("MongoDB connection failed:", err);
+    // Add explicit error response
+    app.get("*", (req, res) => {
+      res.status(500).json({
+        error: "Database connection failed",
+        details: err.message
+      });
+    });
+  });
 
 app.use(cors({
   origin: ['https://your-frontend-app.vercel.app', 'http://localhost:3000'],
@@ -542,3 +557,12 @@ export async function GET() {
     return new NextResponse('Internal Error', { status: 500 })
   }
 }
+
+
+app.get("/", (req, res) => {
+  res.status(200).json({ 
+    status: "active",
+    message: "Servibid Backend Running",
+    timestamp: new Date().toISOString()
+  });
+});
