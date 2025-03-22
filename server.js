@@ -20,9 +20,10 @@ connectDB().then(() => {
   console.log("MongoDB Connected");
 
   // Start server only after DB connection is successful
-  app.listen(3000, () => {
-    console.log('Server started at http://localhost:3000');
-  });
+  const port = process.env.PORT || 3000;
+  app.listen(port, () => {
+    console.log(`Server started on port ${port}`);
+});
 
 }).catch(err => {
   console.error("Failed to connect to MongoDB:", err);
