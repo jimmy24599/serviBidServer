@@ -19,6 +19,12 @@ app.use(express.json()); // Middleware to parse JSON request bodies
 connectDB().then(() => {
   console.log("MongoDB Connected");
 
+app.use(cors({
+  origin: ['https://your-frontend-app.vercel.app', 'http://localhost:3000'],
+  methods: ['GET', 'POST', 'PUT'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
   // Start server only after DB connection is successful
   const port = process.env.PORT || 3000;
   app.listen(port, () => {
