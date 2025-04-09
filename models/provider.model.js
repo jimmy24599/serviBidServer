@@ -31,8 +31,20 @@ const providerSchema = new mongoose.Schema({
         default: 0,
     },
     phone:{
-        
-    }
+        type: Number,
+    },
+    rank: {
+        type: String,
+        default: "Unranked"
+      },
+      badges: {
+        type: [String],
+        default: []
+      },
+      image: {
+        type: String,
+        default: null
+      }
 }, {
     timestamps:true   //created at, updated at
 }); 

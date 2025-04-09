@@ -16,6 +16,13 @@ const bidSchema = new mongoose.Schema({
         type: String,
         required:true,
     },
+    seen: { 
+        type: Boolean, 
+        default: false 
+    },
+    customerId: {
+        type: String,
+    }
     
 }, {
     timestamps:true   //created at, updated at

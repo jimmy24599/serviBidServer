@@ -20,13 +20,7 @@ const customerSchema = new mongoose.Schema({
         type: String,
     },
     location:{
-        type: String,
-    },
-    city:{
-        type: String,
-    },
-    emirate:{
-        type: String,
+        type: mongoose.Schema.Types.Mixed,
     },
     
 }, {

@@ -19,6 +19,9 @@ const requestSchema = new mongoose.Schema({
         type: String,
         required: true
     },
+    details: {
+        type: mongoose.Schema.Types.Mixed, // flexible custom fields per service
+      },
     price:{
         type:Number,
     },
@@ -26,18 +29,20 @@ const requestSchema = new mongoose.Schema({
         type: Date,
         required: true
     },
-    time:{
-        type: String,
-        required: true
-    },
     state:{
         type: String,
         default: 'in-progress',
     },
-    //Needed??
+    paid:{
+        type:Boolean,
+    },
     reviewId:{
         type: String,
-    }
+    },
+    image: {
+        type: String,
+        default: null
+      }
     
 }, {
     timestamps:true   //created at, updated at
