@@ -22,6 +22,10 @@ const customerSchema = new mongoose.Schema({
     location:{
         type: mongoose.Schema.Types.Mixed,
     },
+    stripeCustomerId: { 
+        type: String 
+    },
+
     
 }, {
     timestamps:true   //created at, updated at

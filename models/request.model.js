@@ -29,6 +29,9 @@ const requestSchema = new mongoose.Schema({
         type: Date,
         required: true
     },
+    location:{
+        type:String
+    },
     state:{
         type: String,
         default: 'in-progress',

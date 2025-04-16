@@ -12,6 +12,8 @@ import Chat from './models/chat.model.js'; //import chat model
 import Message from './models/message.model.js'; //import message model
 import Notification from './models/notification.model.js';
 
+
+
 import cors from 'cors'; 
 import compression from 'compression';
 import mongoose from "mongoose"
@@ -30,10 +32,21 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 
 
+//For account deletion
+import { clerkClient } from '@clerk/clerk-sdk-node';
+
+//aiAssistant 
+import { setupAIAssistant } from './aiAssistant.js';
+
+
 
 
 
 dotenv.config();
+
+
+//email
+import { sendEmail } from './email.js';
 
 
 
@@ -103,6 +116,59 @@ const fileFilter = (req, file, cb) => {
   }
 };
 
+
+
+
+// Ai Assistant 
+setupAIAssistant(app);
+
+//account deletion start
+app.delete("/api/dev/delete-user/:email", async (req, res) => {
+  const email = req.params.email?.toLowerCase().trim();
+  console.log("🧨 Deleting user with email:", email);
+
+  try {
+    // Search all users
+    const result = await clerkClient.users.getUserList({ limit: 100 });
+    const users = result?.data || result || [];
+
+    // Log all found emails
+    const foundEmails = users.map(u => u.emailAddresses?.[0]?.emailAddress);
+    console.log("📬 All Clerk Emails:", foundEmails);
+
+    const matchedUser = users.find(u =>
+      u.emailAddresses?.some(e => e.emailAddress.toLowerCase() === email)
+    );
+
+    if (!matchedUser) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found in Clerk."
+      });
+    }
+
+    // Delete from Clerk
+    await clerkClient.users.deleteUser(matchedUser.id);
+
+    // Delete from MongoDB
+    const deletedCustomer = await Customer.findOneAndDelete({ email });
+    const deletedProvider = await ServiceProvider.findOneAndDelete({ email });
+
+    res.json({
+      success: true,
+      message: "User deleted.",
+      deletedFrom: {
+        clerk: true,
+        mongoDB: !!(deletedCustomer || deletedProvider)
+      }
+    });
+  } catch (err) {
+    console.error("❌ Delete error:", err);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+});
+
+//account deletion ends
 
 
 
@@ -233,6 +299,40 @@ app.post('/request', upload.single('image'), async (req, res) => {
     });
 
     await newRequest.save();
+    const customer = await Customer.findById(customerID);
+    if (customer?.email) {
+      await sendEmail({
+        to: customer.email,
+        subject: `Your ${service} request has been submitted!`,
+        html: `
+            <div style="max-width: 600px; margin: auto; padding: 20px; font-family: Arial, sans-serif; background: #f9f9f9; border-radius: 12px; border: 1px solid #eee;">
+              <h2 style="color: #FE4D00; text-align: center;">🛠️ ServiBid</h2>
+              <p style="font-size: 16px;">Hi ${customer.first_name || 'there'},</p>
+
+              <p style="font-size: 16px;">Your request for <strong>${service}</strong> has been submitted successfully!</p>
+
+              <div style="background: #fff; padding: 15px 20px; margin: 20px 0; border-radius: 10px; box-shadow: 0 1px 4px rgba(0,0,0,0.05);">
+                <p><strong>🛎️ Service:</strong> ${service}</p>
+                <p><strong>📅 Date:</strong> ${new Date(date).toLocaleString()}</p>
+                <p><strong>💰 Budget:</strong> AED ${budget}</p>
+                <p><strong>📝 Notes:</strong> ${description}</p>
+              </div>
+
+              <p style="font-size: 15px;">We’ll notify you as soon as service providers start placing bids.</p>
+
+              <a href="https://servibid.tech/app/requests" target="_blank"
+                style="display: inline-block; margin-top: 20px; background: #FE4D00; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: bold;">
+                🔎 View Your Requests
+              </a>
+
+              <p style="margin-top: 30px; font-size: 13px; color: #888; text-align: center;">
+                Thank you for using ServiBid 🙏<br/>
+                Need help? Contact us at support@servibid.tech
+              </p>
+            </div>
+          `
+      });
+    }
 
     // 🔔 Notify Customer
     const customerNotification = await Notification.create({
@@ -250,12 +350,53 @@ app.post('/request', upload.single('image'), async (req, res) => {
     }
 
     // 🔔 Notify Providers offering this service
-    const matchingProviders = await ServiceProvider.find({ services: newRequest.service });
+    const matchingProviders = await ServiceProvider.find({
+      service: { $in: [newRequest.service] }
+    });
+    console.log("🔍 Found Providers:", matchingProviders.length);
 
     for (const provider of matchingProviders) {
+      console.log(`👤 Provider ID: ${provider._id}`);
+      console.log(`📧 Email: ${provider.email}`);
+      console.log(`🧰 Services: ${provider.service}`);
+      if (provider.email) {
+        await sendEmail({
+          to: provider.email,
+          subject: `New ${newRequest.service} request in your area!`,
+          html: `
+            <div style="max-width: 600px; margin: auto; padding: 20px; font-family: Arial, sans-serif; background: #fefefe; border-radius: 12px; border: 1px solid #eee;">
+              <h2 style="color: #FE4D00; text-align: center;">🚨 New Job Alert – ServiBid</h2>
+
+              <p style="font-size: 16px;">Hi ${provider.name || 'there'},</p>
+
+              <p style="font-size: 15px;">
+                A new <strong>${newRequest.service}</strong> request has just been posted in your service category.
+                This could be your next opportunity!
+              </p>
+
+              <div style="background: #fff; padding: 15px 20px; margin: 20px 15px 20px 0; border-radius: 10px; border: 1px solid #ddd;">
+                <p><strong>📋 Service:</strong> ${newRequest.service}</p>
+                <p><strong>💰 Budget:</strong> AED ${newRequest.budget}</p>
+                <p><strong>📅 Date:</strong> ${new Date(newRequest.date).toLocaleString()}</p>
+                <p><strong>📝 Notes:</strong> ${newRequest.description || 'No additional notes provided.'}</p>
+              </div>
+
+              <a href="https://servibid.tech/app/jobs" target="_blank"
+                style="display: inline-block; margin-top: 20px; background: #FE4D00; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: bold;">
+                🚀 View Request & Place Bid
+              </a>
+
+              <p style="margin-top: 30px; font-size: 13px; color: #888; text-align: center;">
+                Stay fast to win the bid — customers often accept the first best offer. 💪<br/>
+                Thank you for being part of ServiBid!
+              </p>
+            </div>
+          `
+        });
+      }
       const providerNotification = await Notification.create({
         user: provider._id,
-        type: 'new_request',
+        type: 'request_created',
         message: `🚨 A new request for **${newRequest.service}** was just posted.`,
         meta: {
           requestId: newRequest._id,
@@ -274,6 +415,8 @@ app.post('/request', upload.single('image'), async (req, res) => {
     res.status(500).json({ success: false, message: "Server error." });
   }
 });
+
+
 
 // Fetch requests by customer ID
 app.get("/requests/:customerID", async (req, res) => {
@@ -643,6 +786,69 @@ app.post("/place-bid", async (req, res) => {
     });
 
     await newBid.save();
+    const customer = await Customer.findById(request.customerID);
+    if (customer?.email) {
+      await sendEmail({
+        to: customer.email,
+        subject: `New bid received on your ${request.service} request!`,
+        html: `
+          <div style="max-width: 600px; margin: auto; padding: 20px; font-family: Arial, sans-serif; background: #fefefe; border-radius: 12px; border: 1px solid #eee;">
+            <h2 style="color: #FE4D00; text-align: center;">💰 New Bid Received – ServiBid</h2>
+
+            <p style="font-size: 16px;">Hi ${customer.first_name || 'there'},</p>
+
+            <p style="font-size: 15px;"><strong>${provider.name}</strong> has placed a new bid on your <strong>${request.service}</strong> request.</p>
+
+            <div style="background: #fff; padding: 15px 20px; margin: 20px 15px 20px 0; border-radius: 10px; border: 1px solid #ddd;">
+              <p><strong>💵 Bid Amount:</strong> AED ${price}</p>
+              <p><strong>📝 Message:</strong> ${description || 'No message provided.'}</p>
+            </div>
+
+            <a href="https://servibid.tech/app/requests" target="_blank"
+              style="display: inline-block; margin-top: 20px; background: #FE4D00; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: bold;">
+              🔍 View All Bids
+            </a>
+
+            <p style="margin-top: 30px; font-size: 13px; color: #888; text-align: center;">
+              Compare bids carefully and accept the best fit for your service. Thanks for using ServiBid!
+            </p>
+          </div>
+        `,
+      });
+    }
+
+    if (provider?.email) {
+      await sendEmail({
+        to: provider.email,
+        subject: `Your bid for ${request.service} was placed successfully!`,
+        html: `
+          <div style="max-width: 600px; margin: auto; padding: 20px; font-family: Arial, sans-serif; background: #fefefe; border-radius: 12px; border: 1px solid #eee;">
+            <h2 style="color: #FE4D00; text-align: center;">✅ Bid Placed Successfully</h2>
+
+            <p style="font-size: 16px;">Hi ${provider.name || 'there'},</p>
+
+            <p style="font-size: 15px;">Your bid has been submitted successfully for the <strong>${request.service}</strong> request.</p>
+
+            <div style="background: #fff; padding: 15px 20px; margin: 20px 15px 20px 0; border-radius: 10px; border: 1px solid #ddd;">
+              <p><strong>💵 Amount:</strong> AED ${price}</p>
+              <p><strong>📝 Message:</strong> ${description || 'No message provided.'}</p>
+              <p><strong>🧾 Request ID:</strong> ${request._id}</p>
+            </div>
+
+            <p style="font-size: 15px;">We’ll notify you if the customer accepts your offer. Stay tuned!</p>
+
+            <a href="https://servibid.tech/app/services" target="_blank"
+              style="display: inline-block; margin-top: 20px; background: #FE4D00; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: bold;">
+              🧮 Manage Bids
+            </a>
+
+            <p style="margin-top: 30px; font-size: 13px; color: #888; text-align: center;">
+              Thank you for being a trusted service provider on ServiBid.
+            </p>
+          </div>
+        `
+      });
+    }
 
     // Emit via Socket.IO
     const io = req.app.get("io");
@@ -788,6 +994,9 @@ app.post('/reviews', async (req, res) => {
       await Review.findByIdAndDelete(savedReview._id);
       return res.status(404).json({ success: false, message: 'Associated request not found' });
     }
+
+    const request = await Request.findById(requestId);
+    const reviewedService = request?.service || 'your service';
 
     const notification = await Notification.create({
       user: providerId,
@@ -1539,31 +1748,23 @@ app.put('/notifications/mark-read/:userId', async (req, res) => {
 // PAYMENT
 //=========
 
+//Create Payment
+app.post("/create-payment-intent", async (req, res) => {
+  const { amount, customerId, providerId, requestId, savePaymentMethod = false } = req.body;
 
-app.post('/create-payment-intent', async (req, res) => {
-  const { amount, customerId, providerId, requestId } = req.body;
+  const customer = await Customer.findById(customerId);
+  if (!customer.stripeCustomerId) {
+    return res.status(400).json({ success: false, message: "Stripe customer ID missing." });
+  }
 
   try {
     const paymentIntent = await stripe.paymentIntents.create({
-      amount: Math.round(amount * 100), // in cents
-      currency: 'aed',
-      metadata: {
-        customerId,
-        providerId,
-        requestId
-      }
+      amount: Math.round(amount * 100),
+      currency: "aed",
+      customer: customer.stripeCustomerId,
+      setup_future_usage: savePaymentMethod ? "off_session" : undefined,
+      metadata: { customerId, providerId, requestId }
     });
-
-    const transaction = new Transaction({
-      customerId,
-      providerId,
-      requestId,
-      stripeSessionId: paymentIntent.id,
-      amount,
-      status: 'pending'
-    });
-
-    await transaction.save();
 
     res.json({ success: true, clientSecret: paymentIntent.client_secret });
   } catch (error) {
@@ -1573,9 +1774,208 @@ app.post('/create-payment-intent', async (req, res) => {
 });
 
 
+//Payment Success
+app.post('/handle-payment-success', async (req, res) => {
+  const { paymentIntentId, customerId, providerId, requestId, amount } = req.body;
+
+  try {
+    const chargeList = await stripe.charges.list({
+      payment_intent: paymentIntentId,
+      limit: 1,
+    });
+    
+    const charge = chargeList.data[0];
+    const last4 = charge?.payment_method_details?.card?.last4;
+    const brand = charge?.payment_method_details?.card?.brand; 
+    const lastDigits = last4 || "9999"; //Last Digits
+    const cardBrand = brand || "unknown";
+
+    const request = await Request.findById(requestId);
+    console.log("✅ Charge Retrieved:", JSON.stringify(charge, null, 2));
+
+
+    const transaction = new Transaction({
+      customerId,
+      providerId,
+      requestId,
+      stripeSessionId: paymentIntentId,
+      amount,
+      service: request?.service || 'Service',
+      lastDigits,
+      cardBrand,
+      status: 'completed',
+    });
+
+    await transaction.save();
+
+
+    await Request.findByIdAndUpdate(requestId, {
+      paid: true,
+      state: 'done',
+    });
+
+    await Notification.create({
+      user: customerId,
+      type: 'payment',
+      message: `Your payment of AED ${amount} for "${request?.service}" has been received.`,
+      meta: { requestId, amount }
+    });
+
+    await Notification.create({
+      user: providerId,
+      type: 'payment',
+      message: `Payment received for "${request?.service}" — AED ${amount}.`,
+      meta: { requestId, amount }
+    });
+
+    res.json({ success: true });
+
+    const customer = await Customer.findById(customerId);
+    const provider = await ServiceProvider.findById(providerId);
+
+    const paymentDate = new Date().toLocaleString('en-US', {
+      weekday: 'short', year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+    });
+
+    if (customer?.email) {
+      await sendEmail({
+        to: customer.email,
+        subject: `Payment received for ${request?.service || 'Service'} – ServiBid Receipt`,
+        html: `
+          <div style="max-width: 600px; margin: auto; padding: 20px; font-family: Arial, sans-serif; background: #fefefe; border-radius: 12px; border: 1px solid #eee;">
+            <h2 style="color: #FE4D00; text-align: center;">🎉 Payment Successful</h2>
+            <p style="font-size: 16px;">Hi ${customer.first_name || 'there'},</p>
+            <p style="font-size: 15px;">Thank you for your payment! Your service request is now confirmed.</p>
+            <div style="background: #fff; padding: 15px 20px; margin: 20px 15px 20px 0; border-radius: 10px; border: 1px solid #ddd;">
+              <p><strong>🛎️ Service:</strong> ${request?.service || 'Service'}</p>
+              <p><strong>💰 Amount:</strong> AED ${amount}</p>
+              <p><strong>💳 Card:</strong> ${cardBrand.toUpperCase()} **** ${lastDigits}</p>
+              <p><strong>📅 Date:</strong> ${paymentDate}</p>
+            </div>
+            <a href="https://servibid.tech/app/transactions" target="_blank"
+              style="display: inline-block; margin-top: 20px; background: #FE4D00; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: bold;">
+              📄 View Transaction
+            </a>
+            <p style="margin-top: 30px; font-size: 13px; color: #888; text-align: center;">
+              Need help? Contact support@servibid.tech.<br/>
+              Thank you for using ServiBid!
+            </p>
+          </div>
+        `
+      });
+    }
+
+    if (provider?.email) {
+      await sendEmail({
+        to: provider.email,
+        subject: `You received a payment for ${request?.service || 'Service'} – ServiBid`,
+        html: `
+          <div style="max-width: 600px; margin: auto; padding: 20px; font-family: Arial, sans-serif; background: #fefefe; border-radius: 12px; border: 1px solid #eee;">
+            <h2 style="color: #FE4D00; text-align: center;">💸 Payment Received!</h2>
+            <p style="font-size: 16px;">Hi ${provider.name || 'there'},</p>
+            <p style="font-size: 15px;">
+              Good news! The customer has paid for the <strong>${request?.service || 'Service'}</strong> request. You can now contact them and schedule the job.
+            </p>
+            <div style="background: #fff; padding: 15px 20px; margin: 20px 15px 20px 0; border-radius: 10px; border: 1px solid #ddd;">
+              <p><strong>🛎️ Service:</strong> ${request?.service || 'Service'}</p>
+              <p><strong>💰 Amount:</strong> AED ${amount}</p>
+              <p><strong>📅 Date:</strong> ${paymentDate}</p>
+            </div>
+            <a href="https://servibid.tech/app/services" target="_blank"
+              style="display: inline-block; margin-top: 20px; background: #FE4D00; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: bold;">
+              📋 View Job Details
+            </a>
+            <p style="margin-top: 30px; font-size: 13px; color: #888; text-align: center;">
+              Thank you for your excellent service on ServiBid!
+            </p>
+          </div>
+        `
+      });
+    }
+
+    
+
+  } catch (err) {
+    console.error("Error handling payment success:", err);
+    res.status(500).json({ success: false });
+  }
+});
+
+
+//Ephermal key to retrieve last 4 digits
+app.post("/create-ephemeral-key", async (req, res) => {
+  const { stripeCustomerId } = req.body;
+
+  try {
+    const ephemeralKey = await stripe.ephemeralKeys.create(
+      { customer: stripeCustomerId },
+      { apiVersion: '2023-10-16' } // Use your Stripe API version here
+    );
+
+    res.json({ success: true, ephemeralKeySecret: ephemeralKey.secret });
+  } catch (err) {
+    console.error("Ephemeral key creation failed:", err);
+    res.status(500).json({ success: false, message: "Ephemeral key failed" });
+  }
+});
+
+// Get transactions for a customer
+app.get('/transactions/:customerId', async (req, res) => {
+  try {
+    const customerId = req.params.customerId;
+    const transactions = await Transaction.find({ customerId }).sort({ createdAt: -1 });
+    res.json({ success: true, transactions });
+  } catch (error) {
+    console.error("Error fetching transactions:", error);
+    res.status(500).json({ success: false, message: "Failed to fetch transactions" });
+  }
+});
+
+//Get transaction using request ID
+app.get("/transactions/request/:requestId", async (req, res) => {
+  try {
+    const requestId = req.params.requestId;
+    const transaction = await Transaction.findOne({ requestId });
+
+    if (!transaction) {
+      return res.status(404).json({ success: false, message: "Transaction not found" });
+    }
+
+    res.json({ success: true, data: transaction });
+  } catch (error) {
+    console.error("Error fetching transaction by requestId:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
+
+//Create stripe customer
+app.post("/create-stripe-customer", async (req, res) => {
+  const { email, name, customerId } = req.body;
+
+  try {
+    const stripeCustomer = await stripe.customers.create({
+      email,
+      name,
+    });
+
+    await Customer.findByIdAndUpdate(customerId, {
+      stripeCustomerId: stripeCustomer.id,
+    });
+
+    res.json({ success: true, stripeCustomerId: stripeCustomer.id });
+  } catch (error) {
+    console.error("Stripe customer creation error:", error);
+    res.status(500).json({ success: false, message: "Failed to create Stripe customer" });
+  }
+});
+
+
+
+
 // Start server
-server.listen(process.env.PORT || 3000, () => {
-  console.log(`🚀 Server & Socket.io running on port ${process.env.PORT || 3000}`);
+server.listen(process.env.PORT || 3003, () => {
+  console.log(`🚀 Server & Socket.io running on port ${process.env.PORT || 3003}`);
 });
 
   } catch (error) {
